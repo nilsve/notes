@@ -7,6 +7,8 @@ export interface IncidentRecord {
   id: string
   title: string
   body: string
+  created_at: string
+  updated_at: string
 }
 
 /** Domain model: a record enriched with the metadata encoded in its markdown body. */
@@ -17,6 +19,8 @@ export interface Incident {
   status: IncidentStatus
   /** Markdown body without the metadata line. */
   content: string
+  createdAt: string
+  updatedAt: string
 }
 
 export const SEVERITIES: Severity[] = ['critical', 'high', 'medium', 'low']
@@ -83,7 +87,15 @@ export function parseIncident(record: IncidentRecord): Incident {
     .replace(/^\s*\n+/, '')
     .trim()
 
-  return { id: record.id, title: record.title, severity, status, content }
+  return {
+    id: record.id,
+    title: record.title,
+    severity,
+    status,
+    content,
+    createdAt: record.created_at,
+    updatedAt: record.updated_at,
+  }
 }
 
 export function toRecord(incident: {
@@ -127,6 +139,48 @@ What we did to fix it.
 
 What we will do differently next time.
 `
+
+/** "3 hours ago" style formatting, falling back to an absolute date. */
+export function formatRelative(iso: string): string {
+  const date = new Date(iso)
+
+  if (Number.isNaN(date.getTime())) {
+    return ''
+  }
+
+  const seconds = Math.round((date.getTime() - Date.now()) / 1000)
+  const units: [Intl.RelativeTimeFormatUnit, number][] = [
+    ['year', 31536000],
+    ['month', 2592000],
+    ['day', 86400],
+    ['hour', 3600],
+    ['minute', 60],
+  ]
+
+  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
+
+  for (const [unit, secondsPerUnit] of units) {
+    if (Math.abs(seconds) >= secondsPerUnit) {
+      return formatter.format(Math.round(seconds / secondsPerUnit), unit)
+    }
+  }
+
+  return formatter.format(seconds, 'second')
+}
+
+/** Absolute, human readable timestamp. */
+export function formatDateTime(iso: string): string {
+  const date = new Date(iso)
+
+  if (Number.isNaN(date.getTime())) {
+    return ''
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(date)
+}
 
 /** Plain-text preview of an incident, used on the list cards. */
 export function excerpt(content: string, maxLength = 180): string {

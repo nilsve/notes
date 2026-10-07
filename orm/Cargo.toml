@@ -3,15 +3,20 @@ name = "orm"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+# A tiny Postgres backed repository/CRUD layer shared by the app crates.
+# See `src/repository/mod.rs` for the traits and `src/db.rs` for connectivity.
 
 [dependencies]
-warp = "0.4"
-juniper = "0.17.1"
+sqlx = { version = "0.9.0", features = [
+    "runtime-tokio",
+    "tls-rustls-ring-webpki",
+    "postgres",
+    "uuid",
+    "chrono",
+    "json",
+    "derive",
+] }
 async-trait = "0.1.92"
-aws-sdk-dynamodb = "1.130.0"
-serde_dynamo = { version = "4.3.0", features = ["aws-sdk-dynamodb+1"] }
-serde = "1.0.229"
-thiserror = "2.0.21"
 actix-web = "4"
 anyhow = "1.0.104"
+thiserror = "2.0.21"

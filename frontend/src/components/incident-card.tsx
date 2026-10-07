@@ -1,7 +1,7 @@
 import { Card, HStack, Text } from '@chakra-ui/react'
 import { Link as RouterLink } from 'react-router-dom'
 import { SeverityBadge, StatusBadge } from './badges'
-import { excerpt, type Incident } from '../domain/incident'
+import { excerpt, formatRelative, type Incident } from '../domain/incident'
 
 interface Props {
   incident: Incident
@@ -36,6 +36,10 @@ export const IncidentCard: React.FC<Props> = ({ incident }) => (
             No description yet
           </Text>
         )}
+
+        <HStack gap="1" mt="auto" fontSize="xs" color="gray.400">
+          <span>Logged {formatRelative(incident.createdAt)}</span>
+        </HStack>
       </Card.Body>
     </RouterLink>
   </Card.Root>

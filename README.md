@@ -42,16 +42,22 @@ index and renders nicely, while the UI can still parse it into badges and filter
 
 ## Configuration (environment variables)
 
-| Variable           | Required | Default                    | Purpose                                        |
-| ------------------ | -------- | -------------------------- | ---------------------------------------------- |
-| `OPENAI_API_KEY`   | yes      | –                          | API key for your OpenAI-compatible server        |
-| `OPENAI_API_BASE`  | no       | `https://api.openai.com/v1`| Base URL of your OpenAI-compatible server        |
-| `OPENAI_MODEL`     | no       | `gpt-4o-mini`              | Model name served by that server                |
-| `DYNAMO_TABLE`     | no       | `records`                  | DynamoDB table used for storage                 |
-| `WEAVIATE_CLASS`   | no       | `Record`                   | Weaviate class used for vectors                 |
-| `WEAVIATE_HOSTNAME`| yes (runtime) | –                       | Weaviate host                                   |
-| `WEAVIATE_PORT`    | yes (runtime) | –                       | Weaviate port                                   |
-| `FRONTEND_LOCATION`| no       | `static`                   | Where the built frontend assets live            |
+| Variable             | Required | Default                                             | Purpose                                  |
+| -------------------- | -------- | --------------------------------------------------- | ---------------------------------------- |
+| `OPENAI_API_KEY`     | yes      | –                                                   | API key for your OpenAI-compatible server |
+| `OPENAI_API_BASE`    | no       | `https://api.openai.com/v1`                         | Base URL of your OpenAI-compatible server |
+| `OPENAI_MODEL`       | no       | `gpt-4o-mini`                                       | Model name served by that server          |
+| `DATABASE_URL`       | yes      | `postgres://incidents:incidents@localhost:5432/incidents` | Postgres connection string          |
+| `WEAVIATE_HOSTNAME`  | yes      | –                                                   | Weaviate host                             |
+| `WEAVIATE_PORT`      | yes      | –                                                   | Weaviate port                             |
+| `FRONTEND_LOCATION`  | no       | `static`                                            | Where the built frontend assets live      |
+
+The bundled `.env.example` is pre-filled for the local **halogen** instance
+(`https://ssh.nilles.dev/halogen/v1`, model `halogen-qwen3.8-flash-next`); copy it
+to `.env` and set `OPENAI_API_KEY`.
+
+The Postgres schema (a single `records` table) is created automatically at boot with
+`CREATE TABLE IF NOT EXISTS`, so there is no manual migration step.
 
 ## Running
 

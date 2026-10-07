@@ -2,28 +2,62 @@ use actix_cors::Cors;
 use actix_files::Files;
 use actix_web::middleware::Logger;
 use actix_web::web::scope;
-use aws_config::load_from_env;
-use aws_sdk_dynamodb::Client;
 use dotenvy::dotenv;
 use env_logger::Env;
 use std::env;
 use std::path::PathBuf;
 
-use orm::prelude::*;
+use orm::prelude::{connect, migrate, Db};
+
 use crate::ai::service::assistant::AssistantService;
 use crate::ai::service::encoder::SentenceEncoderService;
 use crate::ai::service::weaviate::WeaviateService;
 
-use crate::records::repository::DynamoRecordsRepository;
+use crate::records::entities::migration as records_migration;
+use crate::records::repository::PostgresRecordRepository;
 use crate::records::service::RecordsService;
 
 mod ai;
-mod records;
 mod helpers;
+mod records;
+
+/// Connection string for the Postgres instance. Override with `DATABASE_URL`.
+pub fn database_url() -> String {
+    env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "postgres://incidents:incidents@localhost:5432/incidents".to_string())
+}
+
+/// Connects to Postgres and applies the (idempotent) schema.
+pub async fn setup_database() -> anyhow::Result<Db> {
+    let url = database_url();
+
+    println!("Connecting to Postgres at {}", redact(&url));
+
+    let db = connect(&url).await?;
+
+    println!("Applying schema...");
+
+    let statements = records_migration();
+    let statements: Vec<&str> = statements.iter().map(String::as_str).collect();
+    migrate(&db, &statements).await?;
+
+    Ok(db)
+}
+
+/// Hides credentials when logging a connection string.
+fn redact(url: &str) -> String {
+    match (url.find("://"), url.find('@')) {
+        (Some(scheme_end), Some(at)) if at > scheme_end => {
+            format!("{}://***{}", &url[..scheme_end], &url[at..])
+        }
+        _ => url.to_string(),
+    }
+}
 
 #[actix_web::main]
-async fn main() -> Result<(), DynamoRepositoryError> {
+async fn main() -> anyhow::Result<()> {
     println!("Starting server...");
+
     match dotenv() {
         Ok(_) => println!("Loaded .env file"),
         Err(_) => println!("No .env file found"),
@@ -31,14 +65,11 @@ async fn main() -> Result<(), DynamoRepositoryError> {
 
     env_logger::init_from_env(Env::default().default_filter_or("info"));
 
-    println!("Loading AWS configurations...");
+    let db = setup_database().await?;
 
-    let config = load_from_env().await;
-    let client = Client::new(&config);
-
-    let repository = DynamoRecordsRepository::new(client);
+    let repository = PostgresRecordRepository::new(db);
     let records_service = RecordsService::new(repository);
-    let weaviate_service = WeaviateService::new().await.unwrap();
+    let weaviate_service = WeaviateService::new().await?;
     let ai_service = SentenceEncoderService::new();
     let assistant_service = AssistantService::new();
 
@@ -82,7 +113,11 @@ async fn main() -> Result<(), DynamoRepositoryError> {
             .app_data(actix_web::web::Data::new(assistant_service.clone()))
             .wrap(Logger::default())
             .wrap(Cors::permissive())
-            .service(scope("/api").service(records::routes::get_routes()).service(ai::routes::get_routes()));
+            .service(
+                scope("/api")
+                    .service(records::routes::get_routes())
+                    .service(ai::routes::get_routes()),
+            );
 
         if let Some(path) = &frontend_path {
             app = app.service(Files::new("/", path).index_file("index.html"));
@@ -90,55 +125,33 @@ async fn main() -> Result<(), DynamoRepositoryError> {
 
         app
     })
-        .bind(("0.0.0.0", 8080))
-        .unwrap()
-        .run()
-        .await
-        .unwrap();
+    .bind(("0.0.0.0", 8080))?
+    .run()
+    .await?;
 
     Ok(())
 }
 
-// Unit test
 #[cfg(test)]
 mod test {
-    use std::str::FromStr;
-    use aws_config::load_from_env;
-    use aws_sdk_dynamodb::Client;
-    use dotenvy::dotenv;
-    use env_logger::Env;
-    use uuid::Uuid;
     use crate::ai::service::assistant::AssistantService;
     use crate::ai::service::encoder::SentenceEncoderService;
     use crate::ai::service::weaviate::WeaviateService;
-    use crate::records::entities::RecordEntity;
-    use crate::records::repository::DynamoRecordsRepository;
     use crate::records::service::RecordsService;
+    use crate::setup_database;
+    use chrono::Utc;
+    use dotenvy::dotenv;
+    use env_logger::Env;
+    use orm::prelude::CrudService;
+    use std::str::FromStr;
+    use uuid::Uuid;
 
-    // Create test for updating weaviate object
+    use crate::records::entities::RecordEntity;
+    use crate::records::repository::PostgresRecordRepository;
+
+    // Requires a running Postgres + Weaviate (see docker-compose.yml).
     #[tokio::test]
-    async fn test_update_record() {
-        // Create a new record
-        let record = RecordEntity {
-            id: Uuid::from_str("5e9177dc-fd5b-4db5-b1e5-f108cd84a93c").unwrap(),
-            title: "title".to_string(),
-            body: "content".to_string(),
-            encoded: None,
-        };
-
-        // Create a new weaviate service
-        let weaviate_service = WeaviateService::new().await.unwrap();
-
-        // Update the record
-        let result = weaviate_service.all_records().await.unwrap();
-
-        println!("Result: {:?}", result);
-    }
-
-    #[tokio::test]
-    async fn test_querying() {
-        let question = "What is the secret password?";
-
+    async fn test_roundtrip() {
         match dotenv() {
             Ok(_) => println!("Loaded .env file"),
             Err(_) => println!("No .env file found"),
@@ -146,16 +159,47 @@ mod test {
 
         env_logger::init_from_env(Env::default().default_filter_or("info"));
 
-        println!("Loading AWS configurations...");
+        let db = setup_database().await.unwrap();
+        let repository = PostgresRecordRepository::new(db);
+        let records_service = RecordsService::new(repository);
 
-        let config = load_from_env().await;
-        let client = Client::new(&config);
+        let record = RecordEntity {
+            id: Uuid::from_str("5e9177dc-fd5b-4db5-b1e5-f108cd84a93c").unwrap(),
+            title: "title".to_string(),
+            body: "content".to_string(),
+            encoded: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        let created = records_service.create(record.clone()).await.unwrap();
+        assert_eq!(created.id, record.id);
+
+        let found = records_service.find(record.id).await.unwrap().unwrap();
+        assert_eq!(found.title, "title");
+
+        records_service.delete(record.id).await.unwrap();
+        assert!(records_service.find(record.id).await.unwrap().is_none());
+    }
+
+    // Requires a running Postgres + Weaviate + OpenAI compatible endpoint.
+    #[tokio::test]
+    async fn test_querying() {
+        match dotenv() {
+            Ok(_) => println!("Loaded .env file"),
+            Err(_) => println!("No .env file found"),
+        };
+
+        env_logger::init_from_env(Env::default().default_filter_or("info"));
+
+        let db = setup_database().await.unwrap();
+        let records_service = RecordsService::new(PostgresRecordRepository::new(db));
+
+        let question = "What is the secret password?";
 
         let encoding_service = SentenceEncoderService::new();
         let weaviate_service = WeaviateService::new().await.unwrap();
         let assistant_service = AssistantService::new();
-        let dynamo_repository = DynamoRecordsRepository::new(client);
-        let records_service = RecordsService::new(dynamo_repository);
 
         let question = encoding_service.encode_string(question.to_string()).await;
 

@@ -5,15 +5,21 @@ edition = "2021"
 
 [dependencies]
 thiserror = "2.0.21"
+async-trait = "0.1.92"
 rust-bert = { version = "0.23.0" }
 weaviate-community = "0.2.2"
 dotenvy = "0.15"
-chrono = { version = "0.4.45", features = [] }
+chrono = { version = "0.4.45", features = ["serde"] }
 orm = { path = "../orm" }
 actix-web = "4"
-aws-sdk-dynamodb = "1.130.0"
-serde_dynamo = "4.3.0"
-aws-config = { version = "1.12.0", features = ["behavior-version-latest"] }
+sqlx = { version = "0.9.0", features = [
+    "runtime-tokio",
+    "tls-rustls-ring-webpki",
+    "postgres",
+    "uuid",
+    "chrono",
+    "json",
+] }
 serde = { version = "1.0.229", features = ["derive"] }
 apistos = { version = "0.9.0", features = ["extras", "qs_query"] }
 schemars = { package = "apistos-schemars", version = "0.8" }

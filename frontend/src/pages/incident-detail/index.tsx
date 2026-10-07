@@ -7,6 +7,7 @@ import { IncidentForm, type IncidentFormValues } from '../../components/incident
 import { Markdown } from '../../components/markdown'
 import { toaster } from '../../lib/toaster'
 import type { Incident } from '../../domain/incident'
+import { formatDateTime, formatRelative } from '../../domain/incident'
 
 export const IncidentDetailPage: React.FC = () => {
   const { incidentId } = useParams<{ incidentId: string }>()
@@ -181,6 +182,14 @@ export const IncidentDetailPage: React.FC = () => {
                     <SeverityBadge severity={incident.severity} />
                     <StatusBadge status={incident.status} />
                   </HStack>
+
+                  <Text fontSize="xs" color="gray.400" mt="2">
+                    Logged {formatRelative(incident.createdAt)}
+                    {formatDateTime(incident.createdAt) ? ` (${formatDateTime(incident.createdAt)})` : ''}
+                    {incident.updatedAt !== incident.createdAt
+                      ? ` · updated ${formatRelative(incident.updatedAt)}`
+                      : ''}
+                  </Text>
                 </Box>
 
                 <HStack gap="2">

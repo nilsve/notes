@@ -98,10 +98,8 @@ impl BertServiceRunner {
                     let embeddings = self.encode_string(&formatted_text);
 
                     let encoded_record = RecordEntity {
-                        id: record.id,
-                        title: record.title,
-                        body: record.body,
                         encoded: Some(embeddings.get(0).unwrap().to_owned()),
+                        ..record
                     };
 
                     response

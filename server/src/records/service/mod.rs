@@ -1,111 +1,101 @@
 use actix_web::web::Data;
-use orm::prelude::{
-    CrudService, DynamoRepositoryError, LastEvaluatedKey, QueryData, QueryResult, RepositoryIndex,
-};
+use chrono::Utc;
+use orm::prelude::{CrudService, RepositoryError};
 use uuid::Uuid;
+
 use crate::ai::service::encoder::SentenceEncoderService;
 use crate::ai::service::weaviate::WeaviateService;
-
-use crate::records::entities::{RecordEntity};
-use crate::records::models::NewRecordDTO;
-use crate::records::repository::{DynamoRecordsRepository, RecordPrimaryIndex};
+use crate::records::entities::RecordEntity;
+use crate::records::models::{NewRecordDTO, UpdateRecordDTO};
+use crate::records::repository::PostgresRecordRepository;
 
 #[derive(Clone)]
 pub struct RecordsService {
-    repository: DynamoRecordsRepository,
+    repository: PostgresRecordRepository,
 }
 
-impl CrudService<RecordEntity, DynamoRecordsRepository> for RecordsService {
-    fn get_repository(&self) -> &DynamoRecordsRepository {
+impl CrudService<RecordEntity, PostgresRecordRepository> for RecordsService {
+    fn get_repository(&self) -> &PostgresRecordRepository {
         &self.repository
     }
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct QueryRecordIndex {
-    pk: String,
-}
-
-impl QueryRecordIndex {
-    pub fn find_all() -> Self {
-        Self {
-            pk: "RECORD".to_string(),
-        }
-    }
-}
-
-impl RepositoryIndex for QueryRecordIndex {}
-
 impl RecordsService {
-    pub fn new(repository: DynamoRecordsRepository) -> Self {
+    pub fn new(repository: PostgresRecordRepository) -> Self {
         Self { repository }
     }
 
-    pub async fn find_by_id(
-        &self,
-        uuid: Uuid,
-    ) -> Result<Option<RecordEntity>, DynamoRepositoryError> {
-        self.find(RecordPrimaryIndex::find_by_id(uuid)).await
+    pub async fn find_by_id(&self, uuid: Uuid) -> Result<Option<RecordEntity>, RepositoryError> {
+        self.find(uuid).await
     }
 
-    pub async fn find_all_paged(
-        &self,
-        last_evaluated_key: Option<LastEvaluatedKey>,
-    ) -> Result<QueryResult<RecordEntity>, DynamoRepositoryError> {
-        self.query(QueryData::new(
-            QueryRecordIndex::find_all(),
-            last_evaluated_key,
-        ))
-            .await
+    pub async fn find_all(&self) -> Result<Vec<RecordEntity>, RepositoryError> {
+        self.all().await
     }
 
-    pub async fn find_all(&self) -> Result<Vec<RecordEntity>, DynamoRepositoryError> {
-        self.query_all(QueryRecordIndex::find_all()).await
-    }
-
+    /// Persists the record, indexes it semantically and stores the embedding back
+    /// on the row.
     pub async fn create_record(
         &self,
         record: &NewRecordDTO,
         ai_service: Data<SentenceEncoderService>,
         weaviate_service: Data<WeaviateService>,
     ) -> Result<RecordEntity, anyhow::Error> {
-        let record: RecordEntity = record.to_owned().into();
-        self.create(record.clone()).await?;
+        let entity: RecordEntity = record.to_owned().into();
+        let persisted = self.create(entity).await?;
 
-        let record = ai_service.encode_record(record.clone()).await;
+        let encoded = ai_service.encode_record(persisted.clone()).await;
+        weaviate_service.insert_record(&encoded).await?;
 
-        weaviate_service.insert_record(&record).await?;
+        let saved = self.upsert(encoded).await?;
 
-        self.upsert(record.clone()).await?;
-
-        Ok(record)
+        Ok(saved)
     }
 
     pub async fn update_record(
         &self,
         record_id: Uuid,
-        record: &RecordEntity,
+        update: &UpdateRecordDTO,
         ai_service: Data<SentenceEncoderService>,
         weaviate_service: Data<WeaviateService>,
     ) -> Result<RecordEntity, anyhow::Error> {
-        // Check if record exists
-        self.find(RecordPrimaryIndex::find_by_id(record_id))
+        let existing = self
+            .find(record_id)
             .await?
-            .ok_or(DynamoRepositoryError::ItemNotFoundError)?;
+            .ok_or(RepositoryError::ItemNotFoundError)?;
 
         let entity = RecordEntity {
             id: record_id,
-            ..record.clone()
+            title: update.title.clone(),
+            body: update.body.clone(),
+            encoded: existing.encoded,
+            created_at: existing.created_at,
+            updated_at: Utc::now(),
         };
 
         self.upsert(entity.clone()).await?;
 
-        let record = ai_service.encode_record(entity.clone()).await;
+        let encoded = ai_service.encode_record(entity).await;
+        weaviate_service.update_record(&encoded).await?;
 
-        weaviate_service.update_record(&record).await?;
+        let saved = self.upsert(encoded).await?;
 
-        self.upsert(record).await?;
+        Ok(saved)
+    }
 
-        Ok(entity)
+    pub async fn delete_record(
+        &self,
+        record_id: Uuid,
+        weaviate_service: Data<WeaviateService>,
+    ) -> Result<RecordEntity, anyhow::Error> {
+        let existing = self
+            .find(record_id)
+            .await?
+            .ok_or(RepositoryError::ItemNotFoundError)?;
+
+        self.delete(record_id).await?;
+        weaviate_service.delete_record(&existing).await?;
+
+        Ok(existing)
     }
 }

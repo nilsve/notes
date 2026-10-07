@@ -1,15 +1,13 @@
 use actix_web::web::{Data, Json, Path};
 use actix_web::{delete, get, post, put};
 use uuid::Uuid;
-use anyhow::Result;
 
-use orm::prelude::{CrudService, DynamoRepositoryError};
-use orm::server::ActixAnyhow;
+use orm::prelude::{ActixAnyhow, RepositoryError};
 use crate::ai::service::encoder::SentenceEncoderService;
 use crate::ai::service::weaviate::WeaviateService;
-use crate::helpers::{Truncatable};
+use crate::helpers::Truncatable;
 
-use crate::records::models::{NewRecordDTO, RecordDTO};
+use crate::records::models::{NewRecordDTO, RecordDTO, UpdateRecordDTO};
 
 use crate::records::service::RecordsService;
 
@@ -22,43 +20,33 @@ pub fn get_routes() -> actix_web::Scope {
         .service(delete_record_by_id)
 }
 
-// Actix route for retrieving all records
-// #[api_operation(summary = "List all records")]
 #[get("")]
-async fn get_records(
-    records_service: Data<RecordsService>,
-) -> Result<Json<Vec<RecordDTO>>, DynamoRepositoryError> {
-    Ok(Json(records_service.find_all().await?.into_iter().map(|record| {
-        let mut record_dto: RecordDTO = record.into();
+async fn get_records(records_service: Data<RecordsService>) -> Json<Vec<RecordDTO>> {
+    let records = records_service.find_all().await.unwrap_or_default();
 
-        record_dto.body = record_dto.body.truncate_with_dots(100);
+    Json(
+        records
+            .into_iter()
+            .map(|record| {
+                let mut record_dto: RecordDTO = record.into();
 
-        record_dto
-    }).collect()))
+                // The list view only needs a preview of the body.
+                record_dto.body = record_dto.body.truncate_with_dots(140);
+
+                record_dto
+            })
+            .collect(),
+    )
 }
 
 #[get("/{id}")]
 async fn get_record_by_id(
     path: Path<Uuid>,
     records_service: Data<RecordsService>,
-) -> Json<Option<RecordDTO>> {
-    Json(records_service.find_by_id(path.into_inner()).await.unwrap().map(|record| record.into()))
-}
+) -> Result<Json<Option<RecordDTO>>, RepositoryError> {
+    let record = records_service.find_by_id(path.into_inner()).await?;
 
-#[delete("/{id}")]
-async fn delete_record_by_id(
-    path: Path<Uuid>,
-    records_service: Data<RecordsService>,
-    weaviate_service: Data<WeaviateService>,
-) -> ActixAnyhow<Json<RecordDTO>> {
-    let record = records_service.find_by_id(path.into_inner()).await.map_err(anyhow::Error::from)?;
-
-    if let Some(record) = &record {
-        records_service.delete(record.clone()).await.map_err(anyhow::Error::from)?;
-        weaviate_service.delete_record(record).await.map_err(anyhow::Error::from)?;
-    }
-
-    Ok(Json(record.map(|record| record.into()).unwrap()))
+    Ok(Json(record.map(|record| record.into())))
 }
 
 #[post("")]
@@ -68,20 +56,37 @@ async fn create_record(
     ai_service: Data<SentenceEncoderService>,
     weaviate_service: Data<WeaviateService>,
 ) -> ActixAnyhow<Json<RecordDTO>> {
-    Ok(Json(records_service.create_record(&record, ai_service, weaviate_service).await?.into()))
+    let created = records_service
+        .create_record(&record, ai_service, weaviate_service)
+        .await?;
+
+    Ok(Json(created.into()))
 }
 
 #[put("/{id}")]
 async fn update_record(
     path: Path<Uuid>,
-    record: Json<RecordDTO>,
+    record: Json<UpdateRecordDTO>,
     records_service: Data<RecordsService>,
     ai_service: Data<SentenceEncoderService>,
     weaviate_service: Data<WeaviateService>,
 ) -> ActixAnyhow<Json<RecordDTO>> {
-    Ok(Json(
-        records_service
-            .update_record(path.into_inner(), &record.into_inner().into(), ai_service, weaviate_service)
-            .await?.into(),
-    ))
+    let updated = records_service
+        .update_record(path.into_inner(), &record, ai_service, weaviate_service)
+        .await?;
+
+    Ok(Json(updated.into()))
+}
+
+#[delete("/{id}")]
+async fn delete_record_by_id(
+    path: Path<Uuid>,
+    records_service: Data<RecordsService>,
+    weaviate_service: Data<WeaviateService>,
+) -> ActixAnyhow<Json<RecordDTO>> {
+    let deleted = records_service
+        .delete_record(path.into_inner(), weaviate_service)
+        .await?;
+
+    Ok(Json(deleted.into()))
 }

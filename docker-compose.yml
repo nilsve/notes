@@ -8,10 +8,34 @@ services:
     environment:
       - WEAVIATE_HOSTNAME=weaviate
       - WEAVIATE_PORT=8080
+      - DATABASE_URL=postgres://incidents:incidents@postgres:5432/incidents
     depends_on:
-      - weaviate
+      postgres:
+        condition: service_healthy
+      weaviate:
+        condition: service_started
     networks:
       - internal
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: incidents
+      POSTGRES_PASSWORD: incidents
+      POSTGRES_DB: incidents
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U incidents -d incidents"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - internal
+
   weaviate:
     hostname: weaviate
     image: cr.weaviate.io/semitechnologies/weaviate:1.24.10
@@ -27,7 +51,10 @@ services:
       CLUSTER_HOSTNAME: 'node1'
     networks:
       - internal
+
 volumes:
   weaviate_data:
+  postgres_data:
+
 networks:
   internal:
