@@ -1,7 +1,9 @@
 use actix_cors::Cors;
-use actix_files::Files;
+use actix_files::{Files, NamedFile};
+use actix_web::dev::{fn_service, ServiceRequest, ServiceResponse};
 use actix_web::middleware::Logger;
 use actix_web::web::scope;
+use actix_web::{HttpResponse, Responder};
 use dotenvy::dotenv;
 use env_logger::Env;
 use std::env;
@@ -25,6 +27,14 @@ mod records;
 pub fn database_url() -> String {
     env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://incidents:incidents@localhost:5432/incidents".to_string())
+}
+
+/// Port the app listens on. Override with `PORT`.
+pub fn listen_port() -> u16 {
+    env::var("PORT")
+        .ok()
+        .and_then(|value| value.trim().parse::<u16>().ok())
+        .unwrap_or(1337)
 }
 
 /// Connects to Postgres and applies the (idempotent) schema.
@@ -104,7 +114,10 @@ async fn main() -> anyhow::Result<()> {
 
     println!("Starting web server...");
 
-    // Start actix server
+    let port = listen_port();
+
+    println!("Listening on 0.0.0.0:{} (API under /api)", port);
+
     actix_web::HttpServer::new(move || {
         let mut app = actix_web::App::new()
             .app_data(actix_web::web::Data::new(records_service.clone()))
@@ -120,12 +133,40 @@ async fn main() -> anyhow::Result<()> {
             );
 
         if let Some(path) = &frontend_path {
-            app = app.service(Files::new("/", path).index_file("index.html"));
+            // Single-port deployment: the API lives under /api (registered above) and
+            // everything else is the SPA. Unknown paths fall back to index.html so
+            // that deep links like /<incident-id> keep working after a refresh.
+            let index_file = path.join("index.html");
+
+            app = app.service(
+                Files::new("/", path)
+                    .index_file("index.html")
+                    .default_handler(fn_service(move |req: ServiceRequest| {
+                        let index_file = index_file.clone();
+
+                        async move {
+                            let (req, _payload) = req.into_parts();
+
+                            match NamedFile::open(&index_file) {
+                                // NamedFile derives text/html from the .html extension.
+                                Ok(file) => {
+                                    let res = file.into_response(&req);
+                                    Ok(ServiceResponse::new(req, res))
+                                }
+                                Err(_) => Ok(ServiceResponse::new(
+                                    req,
+                                    HttpResponse::NotFound()
+                                        .body("Frontend assets are not installed"),
+                                )),
+                            }
+                        }
+                    })),
+            );
         }
 
         app
     })
-    .bind(("0.0.0.0", 8080))?
+    .bind(("0.0.0.0", port))?
     .run()
     .await?;
 

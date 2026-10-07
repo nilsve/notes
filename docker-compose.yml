@@ -2,10 +2,11 @@ services:
   server:
     build: .
     ports:
-      - "8080:8080"
+      - "1337:1337"
     env_file:
       - .env
     environment:
+      - PORT=1337
       - WEAVIATE_HOSTNAME=weaviate
       - WEAVIATE_PORT=8080
       - DATABASE_URL=postgres://incidents:incidents@postgres:5432/incidents
@@ -40,7 +41,7 @@ services:
     hostname: weaviate
     image: cr.weaviate.io/semitechnologies/weaviate:1.24.10
     ports:
-      - 8081:8080
+      - "127.0.0.1:8081:8080"
     volumes:
       - weaviate_data:/var/lib/weaviate
     environment:

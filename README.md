@@ -29,6 +29,28 @@ index and renders nicely, while the UI can still parse it into badges and filter
 | Severity  | `critical`, `high`, `medium`, `low`                        |
 | Status    | `open`, `investigating`, `mitigated`, `resolved`           |
 
+## Ports & routing
+
+The app is **single-port**: one actix-web process serves both the JSON API (under
+`/api`) and the compiled SPA (everything else). No reverse proxy or extra port is
+needed in front of it — Caddy/Nginx are optional TLS terminators only.
+
+| Port | What                                   | Notes                                            |
+| ---- | -------------------------------------- | ------------------------------------------------ |
+| 1337 | API + frontend (the only public port)  | `PORT` env var, default `1337`                   |
+| 5432 | Postgres (internal)                    | published on `127.0.0.1` only                    |
+| 8081 | Weaviate (internal)                    | published on `127.0.0.1` only                    |
+| 5173 | Vite dev server (development only)     | proxies `/api` to `http://localhost:1337`         |
+
+Routing inside the app:
+
+- `/api/records*`, `/api/ai` → API handlers
+- `/assets/*`, `/vite.svg`, … → static files from `FRONTEND_LOCATION`
+- anything else → `index.html`, so SPA deep links (e.g. `/<incident-id>`) survive a
+  refresh
+
+`https://notes.nilles.dev` is forwarded to port **1337** on this machine.
+
 ## HTTP API
 
 | Method   | Path                  | Description                          |
@@ -66,15 +88,15 @@ cp .env.example .env   # fill in your keys
 docker compose up --build
 ```
 
-The app is served on `http://localhost:8080` (the API is proxied to
-`http://localhost:8081` when running Weaviate via the provided compose file).
+The app is served on `http://localhost:1337` (and publicly on
+`https://notes.nilles.dev`).
 
 ### Frontend development
 
 ```bash
 cd frontend
 npm install
-npm run dev      # vite dev server, proxies /api to localhost:8080
+npm run dev      # vite dev server, proxies /api to localhost:1337
 npm run build    # type-check + production build
 npm run lint     # eslint (flat config)
 ```
