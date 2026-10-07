@@ -7,13 +7,19 @@ use serde_json::Value;
 use thiserror::Error;
 use uuid::Uuid;
 use weaviate_community::collections::objects::{MultiObjects, Object, ObjectListParameters};
-use weaviate_community::collections::query::{ExploreQuery, GetQuery};
-use weaviate_community::collections::schema::{Class, Classes, Properties, Property};
+use weaviate_community::collections::query::ExploreQuery;
+use weaviate_community::collections::schema::{Class, Properties, Property};
 use weaviate_community::WeaviateClient;
-use crate::notes::entities::NoteEntity;
-use crate::notes::service::NotesService;
+use crate::records::entities::RecordEntity;
+use crate::records::service::RecordsService;
 
-const NOTE_CLASS: &str = "Note";
+/// Weaviate class used for storing record vectors. Override with `WEAVIATE_CLASS`.
+fn record_class() -> &'static str {
+    static CLASS: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    CLASS
+        .get_or_init(|| std::env::var("WEAVIATE_CLASS").unwrap_or_else(|_| "Record".to_string()))
+        .as_str()
+}
 
 #[derive(Error, Debug)]
 pub enum WeaviateServiceError {
@@ -65,7 +71,7 @@ pub struct ExploreQueryResult {
 }
 
 impl ExploreQueryResult {
-    pub async fn get_notes(&self, notes_service: &NotesService) -> anyhow::Result<Vec<NoteEntity>> {
+    pub async fn get_records(&self, records_service: &RecordsService) -> anyhow::Result<Vec<RecordEntity>> {
         let mut result = Vec::new();
 
         for item in &self.data.Explore {
@@ -73,20 +79,20 @@ impl ExploreQueryResult {
             let input = splitted.get(splitted.len() - 1).expect("No uuid found");
             let id = Uuid::parse_str(input).unwrap();
 
-            let note_entity = notes_service.find_by_id(id).await.unwrap().expect("Weaviate returned non existing note!");
-            result.push(note_entity);
+            let record_entity = records_service.find_by_id(id).await.unwrap().expect("Weaviate returned non existing record!");
+            result.push(record_entity);
         }
 
         Ok(result)
     }
 }
 
-impl From<&NoteEntity> for Object {
-    fn from(note: &NoteEntity) -> Self {
-        let mut builder = Object::builder(NOTE_CLASS, note.into())
-            .with_id(note.id);
+impl From<&RecordEntity> for Object {
+    fn from(record: &RecordEntity) -> Self {
+        let mut builder = Object::builder(record_class(), record.into())
+            .with_id(record.id);
 
-        if let Some(vector) = &note.encoded {
+        if let Some(vector) = &record.encoded {
             builder = builder.with_vector(vector.to_f64_vec());
         }
 
@@ -94,11 +100,11 @@ impl From<&NoteEntity> for Object {
     }
 }
 
-impl From<&NoteEntity> for Value {
-    fn from(note: &NoteEntity) -> Self {
+impl From<&RecordEntity> for Value {
+    fn from(record: &RecordEntity) -> Self {
         serde_json::json!({
-            "title": &note.title,
-            "content": &note.body,
+            "title": &record.title,
+            "content": &record.body,
         })
     }
 }
@@ -123,31 +129,31 @@ impl WeaviateService {
         Ok(service)
     }
 
-    pub async fn insert_note(
+    pub async fn insert_record(
         &self,
-        note: &NoteEntity,
+        record: &RecordEntity,
     ) -> Result<(), WeaviateServiceError> {
-        self.client.objects.create(&(note.into()), None).await?;
+        self.client.objects.create(&(record.into()), None).await?;
 
         Ok(())
     }
 
-    pub async fn find_note(
+    pub async fn find_record(
         &self,
-        note_id: &Uuid,
+        record_id: &Uuid,
     ) -> Result<Object, WeaviateServiceError> {
-        let note = self.client.objects.get(NOTE_CLASS, note_id, None, None, None).await?;
+        let record = self.client.objects.get(record_class(), record_id, None, None, None).await?;
 
-        Ok(note)
+        Ok(record)
     }
 
-    pub async fn all_notes(&self) -> Result<MultiObjects, WeaviateServiceError> {
-        let notes = self.client.objects.list(ObjectListParameters::builder().with_include("vector").with_class_name(NOTE_CLASS).build()).await?;
+    pub async fn all_records(&self) -> Result<MultiObjects, WeaviateServiceError> {
+        let records = self.client.objects.list(ObjectListParameters::builder().with_include("vector").with_class_name(record_class()).build()).await?;
 
-        Ok(notes)
+        Ok(records)
     }
 
-    pub async fn query_notes(
+    pub async fn query_records(
         &self,
         query_vector: Embedding,
     ) -> Result<ExploreQueryResult, WeaviateServiceError> {
@@ -166,28 +172,28 @@ impl WeaviateService {
         let deserialized: ExploreQueryResult = serde_json::from_value(json_value).unwrap();
 
         Ok(deserialized)
-        // let notes = self.client.query.
+        // let records = self.client.query.
     }
 
-    pub async fn delete_note(
+    pub async fn delete_record(
         &self,
-        note: &NoteEntity,
+        record: &RecordEntity,
     ) -> Result<(), WeaviateServiceError> {
-        self.client.objects.delete(NOTE_CLASS, &note.id, None, None).await?;
+        self.client.objects.delete(record_class(), &record.id, None, None).await?;
 
         Ok(())
     }
 
-    pub async fn update_note(
+    pub async fn update_record(
         &self,
-        note: &NoteEntity,
+        record: &RecordEntity,
     ) -> Result<(), WeaviateServiceError> {
-        match self.delete_note(note).await {
-            Ok(_) => println!("Successfully deleted item for updating {:?}", note.id),
-            Err(_) => println!("Coudln't delete item for updating {:?}", note.id)
+        match self.delete_record(record).await {
+            Ok(_) => println!("Successfully deleted item for updating {:?}", record.id),
+            Err(_) => println!("Coudln't delete item for updating {:?}", record.id)
         };
 
-        self.insert_note(note).await?;
+        self.insert_record(record).await?;
 
         Ok(())
     }
@@ -195,18 +201,18 @@ impl WeaviateService {
     async fn setup_database(&self) -> Result<(), WeaviateServiceError> {
         let schema = self.client.schema.get().await?;
 
-        if !schema.classes.iter().any(|class| class.class == NOTE_CLASS) {
-            println!("Creating Note class");
-            let note_class = Class::builder(NOTE_CLASS)
+        if !schema.classes.iter().any(|class| class.class == record_class()) {
+            println!("Creating Record class");
+            let class = Class::builder(record_class())
                 .with_properties(Properties::new(vec![
                     Property::builder("title", vec!["text"]).build(),
                     Property::builder("content", vec!["text"]).build(),
                 ]))
                 .build();
 
-            self.client.schema.create_class(&note_class).await?;
+            self.client.schema.create_class(&class).await?;
         } else {
-            println!("Note class already exists");
+            println!("Record class already exists");
         }
 
         Ok(())

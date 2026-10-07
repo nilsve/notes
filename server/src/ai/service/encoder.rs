@@ -1,4 +1,4 @@
-use crate::notes::entities::NoteEntity;
+use crate::records::entities::RecordEntity;
 use rust_bert::pipelines::sentence_embeddings::{Embedding, SentenceEmbeddingsBuilder, SentenceEmbeddingsModel, SentenceEmbeddingsModelType};
 use std::sync::mpsc::{Receiver, SyncSender};
 use std::sync::{mpsc, Arc, Mutex};
@@ -11,13 +11,13 @@ type Message = (RequestMessage, oneshot::Sender<ResponseMessage>);
 
 #[derive(Debug, Clone)]
 enum RequestMessage {
-    EncodeNote(NoteEntity),
+    EncodeRecord(RecordEntity),
     EncodeString(String),
 }
 
 #[derive(Debug)]
 enum ResponseMessage {
-    NoteEncoded(NoteEntity),
+    RecordEncoded(RecordEntity),
     StringEncoded(Embedding),
 }
 
@@ -54,17 +54,17 @@ impl SentenceEncoderService {
         }
     }
 
-    pub async fn encode_note(&self, note: NoteEntity) -> NoteEntity {
+    pub async fn encode_record(&self, record: RecordEntity) -> RecordEntity {
         let (sender, receiver) = oneshot::channel();
 
         self.sync_sender
-            .send((RequestMessage::EncodeNote(note), sender))
+            .send((RequestMessage::EncodeRecord(record), sender))
             .expect("sending request");
 
         let response = receiver.await.expect("receiving response");
 
         match response {
-            ResponseMessage::NoteEncoded(note) => note,
+            ResponseMessage::RecordEncoded(record) => record,
             _ => panic!("Unexpected response"),
         }
     }
@@ -92,20 +92,20 @@ impl BertServiceRunner {
 
         while let Ok((request, response)) = receiver.recv() {
             match request {
-                RequestMessage::EncodeNote(note) => {
-                    let formatted_note = format!("TITLE: {} BODY: {}", note.title, note.body);
+                RequestMessage::EncodeRecord(record) => {
+                    let formatted_text = format!("TITLE: {} BODY: {}", record.title, record.body);
 
-                    let embeddings = self.encode_string(&formatted_note);
+                    let embeddings = self.encode_string(&formatted_text);
 
-                    let encoded_note = NoteEntity {
-                        id: note.id,
-                        title: note.title,
-                        body: note.body,
+                    let encoded_record = RecordEntity {
+                        id: record.id,
+                        title: record.title,
+                        body: record.body,
                         encoded: Some(embeddings.get(0).unwrap().to_owned()),
                     };
 
                     response
-                        .send(ResponseMessage::NoteEncoded(encoded_note))
+                        .send(ResponseMessage::RecordEncoded(encoded_record))
                         .expect("sending response");
                 }
                 RequestMessage::EncodeString(string) => {
@@ -121,13 +121,13 @@ impl BertServiceRunner {
         Ok(())
     }
 
-    fn encode_string(&self, formatted_note: &String) -> Vec<Embedding> {
+    fn encode_string(&self, formatted_text: &String) -> Vec<Embedding> {
         let start = Instant::now();
 
         println!("Encoding text");
 
         let embeddings = self.sentence_embeddings_model
-            .encode(&vec![formatted_note])
+            .encode(&vec![formatted_text])
             .unwrap();
 
         let duration = start.elapsed();

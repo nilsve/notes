@@ -4,28 +4,28 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-thiserror = "1.0.59"
-rust-bert = { version = "0.22.0" }
+thiserror = "2.0.21"
+rust-bert = { version = "0.23.0" }
 weaviate-community = "0.2.2"
 dotenvy = "0.15"
-chrono = { version = "0.4.31", features = [] }
+chrono = { version = "0.4.45", features = [] }
 orm = { path = "../orm" }
 actix-web = "4"
-aws-sdk-dynamodb = "1.16.0"
-serde_dynamo = "4.2.13"
-aws-config = { version = "1.1.7", features = ["behavior-version-latest"] }
-serde = { version = "1.0.197", features = ["derive"] }
-apistos = { version = "0.1.7", features = ["extras", "qs_query"] }
+aws-sdk-dynamodb = "1.130.0"
+serde_dynamo = "4.3.0"
+aws-config = { version = "1.12.0", features = ["behavior-version-latest"] }
+serde = { version = "1.0.229", features = ["derive"] }
+apistos = { version = "0.9.0", features = ["extras", "qs_query"] }
 schemars = { package = "apistos-schemars", version = "0.8" }
-actix-cors = "0.7.0"
-actix-files = "0.6.5"
-env_logger = "0.11.3"
-tokio = "1.33.0"
-serde_json = "1.0.108"
-anyhow = "1.0.82"
-chatgpt_rs = "1.2.3"
+actix-cors = "0.7.2"
+actix-files = "0.7.0"
+env_logger = "0.11.11"
+tokio = "1.53.2"
+serde_json = "1.0.151"
+anyhow = "1.0.104"
+openai-api-rs = "10.0.2"
 [dependencies.uuid]
-version = "1.8.0"
+version = "1.27.0"
 features = [
     "v4", # Lets you generate random UUIDs
     "fast-rng", # Use a faster (but still sufficiently random) RNG

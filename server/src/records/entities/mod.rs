@@ -7,7 +7,7 @@ use uuid::Uuid;
 use orm::prelude::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ApiComponent, JsonSchema)]
-pub struct NoteEntity {
+pub struct RecordEntity {
     pub id: Uuid,
     pub title: String,
     pub body: String,
@@ -16,26 +16,26 @@ pub struct NoteEntity {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct NoteIndex {}
+pub struct RecordIndex {}
 
 #[derive(Debug, Clone, Serialize)]
-pub struct NotePrimaryKey {
+pub struct RecordPrimaryKey {
     pub pk: String,
     pub sk: String,
 }
 
-impl Entity for NoteEntity {
-    type PrimaryKey = NotePrimaryKey;
-    type IndexFields = NoteIndex;
+impl Entity for RecordEntity {
+    type PrimaryKey = RecordPrimaryKey;
+    type IndexFields = RecordIndex;
 
     fn get_primary_key(&self) -> Self::PrimaryKey {
-        NotePrimaryKey {
-            pk: "NOTE".to_string(),
-            sk: format!("NOTE_ID#{}", self.id),
+        RecordPrimaryKey {
+            pk: "RECORD".to_string(),
+            sk: format!("RECORD_ID#{}", self.id),
         }
     }
 
     fn get_index_fields(&self) -> Self::IndexFields {
-        NoteIndex {}
+        RecordIndex {}
     }
 }

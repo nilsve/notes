@@ -6,12 +6,12 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-warp = "0.3"
-juniper = "0.15.11"
-async-trait = "0.1.74"
-aws-sdk-dynamodb = "1.16.0"
-serde_dynamo = { version = "4.2.13", features = ["aws-sdk-dynamodb+1"] }
-serde = "1.0.197"
-thiserror = "1.0.58"
+warp = "0.4"
+juniper = "0.17.1"
+async-trait = "0.1.92"
+aws-sdk-dynamodb = "1.130.0"
+serde_dynamo = { version = "4.3.0", features = ["aws-sdk-dynamodb+1"] }
+serde = "1.0.229"
+thiserror = "2.0.21"
 actix-web = "4"
-anyhow = "1.0.82"
+anyhow = "1.0.104"

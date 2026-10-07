@@ -1,4 +1,3 @@
-use std::fmt::{Display, Formatter};
 use actix_web::http::StatusCode;
 use actix_web::{HttpResponse, ResponseError};
 

@@ -1,18 +1,19 @@
-import './App.css'
-import { AllNotes } from './pages/all-notes';
-import { Route, Routes } from 'react-router-dom';
-import { EditNote } from './pages/all-notes/edit-note/edit-note.tsx';
-import { Box } from '@chakra-ui/react';
+import { createBrowserRouter, RouterProvider } from 'react-router-dom'
+import { AppShell } from './components/app-shell'
+import { IncidentsPage } from './pages/incidents'
+import { IncidentDetailPage } from './pages/incident-detail'
 
-function App() {
-    return (
-        <Box w={'90%'} m={'auto'} p={'1em'}>
-            <Routes>
-                <Route path="/" element={<AllNotes />} />
-                <Route path=":noteId" element={<EditNote />} />
-            </Routes>
-        </Box>
-    )
-}
+const router = createBrowserRouter([
+  {
+    element: <AppShell />,
+    children: [
+      { path: '/', element: <IncidentsPage /> },
+      { path: '/:incidentId', element: <IncidentDetailPage /> },
+      { path: '*', element: <IncidentsPage /> },
+    ],
+  },
+])
 
-export default App;
+const App = () => <RouterProvider router={router} />
+
+export default App

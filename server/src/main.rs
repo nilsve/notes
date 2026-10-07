@@ -10,15 +10,15 @@ use std::env;
 use std::path::PathBuf;
 
 use orm::prelude::*;
-use crate::ai::service::chatgpt::ChatGptService;
+use crate::ai::service::assistant::AssistantService;
 use crate::ai::service::encoder::SentenceEncoderService;
 use crate::ai::service::weaviate::WeaviateService;
 
-use crate::notes::repository::DynamoNotesRepository;
-use crate::notes::service::NotesService;
+use crate::records::repository::DynamoRecordsRepository;
+use crate::records::service::RecordsService;
 
 mod ai;
-mod notes;
+mod records;
 mod helpers;
 
 #[actix_web::main]
@@ -36,11 +36,11 @@ async fn main() -> Result<(), DynamoRepositoryError> {
     let config = load_from_env().await;
     let client = Client::new(&config);
 
-    let repository = DynamoNotesRepository::new(client);
-    let notes_service = NotesService::new(repository);
+    let repository = DynamoRecordsRepository::new(client);
+    let records_service = RecordsService::new(repository);
     let weaviate_service = WeaviateService::new().await.unwrap();
     let ai_service = SentenceEncoderService::new();
-    let chatgpt_service = ChatGptService::new();
+    let assistant_service = AssistantService::new();
 
     let path: PathBuf = env::var("FRONTEND_LOCATION")
         .unwrap_or_else(|_| "static".to_string())
@@ -76,13 +76,13 @@ async fn main() -> Result<(), DynamoRepositoryError> {
     // Start actix server
     actix_web::HttpServer::new(move || {
         let mut app = actix_web::App::new()
-            .app_data(actix_web::web::Data::new(notes_service.clone()))
+            .app_data(actix_web::web::Data::new(records_service.clone()))
             .app_data(actix_web::web::Data::new(ai_service.clone()))
             .app_data(actix_web::web::Data::new(weaviate_service.clone()))
-            .app_data(actix_web::web::Data::new(chatgpt_service.clone()))
+            .app_data(actix_web::web::Data::new(assistant_service.clone()))
             .wrap(Logger::default())
             .wrap(Cors::permissive())
-            .service(scope("/api").service(notes::routes::get_routes()).service(ai::routes::get_routes()));
+            .service(scope("/api").service(records::routes::get_routes()).service(ai::routes::get_routes()));
 
         if let Some(path) = &frontend_path {
             app = app.service(Files::new("/", path).index_file("index.html"));
@@ -108,18 +108,18 @@ mod test {
     use dotenvy::dotenv;
     use env_logger::Env;
     use uuid::Uuid;
-    use crate::ai::service::chatgpt::ChatGptService;
+    use crate::ai::service::assistant::AssistantService;
     use crate::ai::service::encoder::SentenceEncoderService;
     use crate::ai::service::weaviate::WeaviateService;
-    use crate::notes::entities::NoteEntity;
-    use crate::notes::repository::DynamoNotesRepository;
-    use crate::notes::service::NotesService;
+    use crate::records::entities::RecordEntity;
+    use crate::records::repository::DynamoRecordsRepository;
+    use crate::records::service::RecordsService;
 
     // Create test for updating weaviate object
     #[tokio::test]
-    async fn test_update_note() {
-        // Create a new note
-        let note = NoteEntity {
+    async fn test_update_record() {
+        // Create a new record
+        let record = RecordEntity {
             id: Uuid::from_str("5e9177dc-fd5b-4db5-b1e5-f108cd84a93c").unwrap(),
             title: "title".to_string(),
             body: "content".to_string(),
@@ -129,8 +129,8 @@ mod test {
         // Create a new weaviate service
         let weaviate_service = WeaviateService::new().await.unwrap();
 
-        // Update the note
-        let result = weaviate_service.all_notes().await.unwrap();
+        // Update the record
+        let result = weaviate_service.all_records().await.unwrap();
 
         println!("Result: {:?}", result);
     }
@@ -153,19 +153,20 @@ mod test {
 
         let encoding_service = SentenceEncoderService::new();
         let weaviate_service = WeaviateService::new().await.unwrap();
-        let chatgpt_service = ChatGptService::new();
-        let dynamo_repository = DynamoNotesRepository::new(client);
-        let notes_service = NotesService::new(dynamo_repository);
+        let assistant_service = AssistantService::new();
+        let dynamo_repository = DynamoRecordsRepository::new(client);
+        let records_service = RecordsService::new(dynamo_repository);
 
         let question = encoding_service.encode_string(question.to_string()).await;
 
-        let result = weaviate_service.query_notes(question).await.unwrap();
+        let result = weaviate_service.query_records(question).await.unwrap();
 
-        let result_notes = result.get_notes(&notes_service).await.unwrap();
+        let result_records = result.get_records(&records_service).await.unwrap();
 
-        let response = chatgpt_service.ask_question("What is the secret password?", &result_notes).await.unwrap();
-
-        let response_message = response.message_choices.get(0).unwrap().message.content.clone();
+        let response_message = assistant_service
+            .ask_question("What is the secret password?", &result_records)
+            .await
+            .unwrap();
 
         println!("Result: {:?}", response_message);
     }
