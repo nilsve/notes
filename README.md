@@ -3,7 +3,7 @@
 A small self-hosted app for logging incidents and how they were solved, with semantic
 (AI) search over the whole history.
 
-- **Backend**: Rust (actix-web) + DynamoDB for storage, Weaviate for vector search,
+- **Backend**: Rust (actix-web) + Postgres for storage, Weaviate for vector search,
   a local sentence-embedding model for indexing, and any OpenAI-compatible server for
   the question answering.
 - **Frontend**: React 19 + Chakra UI v3 (Vite + TypeScript).
@@ -38,8 +38,8 @@ needed in front of it — Caddy/Nginx are optional TLS terminators only.
 | Port | What                                   | Notes                                            |
 | ---- | -------------------------------------- | ------------------------------------------------ |
 | 1337 | API + frontend (the only public port)  | `PORT` env var, default `1337`                   |
-| 5432 | Postgres (internal)                    | published on `127.0.0.1` only                    |
-| 8081 | Weaviate (internal)                    | published on `127.0.0.1` only                    |
+| 5432 | Postgres (internal)                    | **not published** — reachable only on the docker network |
+| 8081 | Weaviate (internal)                    | **not published** — reachable only on the docker network |
 | 5173 | Vite dev server (development only)     | proxies `/api` to `http://localhost:1337`         |
 
 Routing inside the app:
@@ -61,6 +61,35 @@ Routing inside the app:
 | `PUT`    | `/api/records/{id}`   | Update a record                      |
 | `DELETE` | `/api/records/{id}`   | Delete a record (and its vector)     |
 | `POST`   | `/api/ai`             | `{ "question": "..." }` → `{ "answer": "..." }` |
+| `WS`     | `/api/ai/ws`          | Same, streamed frame by frame over a WebSocket    |
+
+### Streaming answers
+
+`/api/ai/ws` is a WebSocket. Upgrade, then send one JSON message per question:
+
+```json
+{"question":"Have we seen a 500 on checkout before?"}
+```
+
+Frames arrive as the model produces them:
+
+```json
+{"type":"reasoning","delta":"The user asks about ..."}
+{"type":"answer","delta":"Yes — "}
+{"type":"done"}
+```
+
+`reasoning` carries the model's chain of thought (controlled by
+`OPENAI_REASONING_EFFORT`) and renders in a collapsed panel in the UI; `answer`
+is the reply. Errors arrive as `{"type":"error","message":"..."}`. The socket
+stays open for further questions until the client closes it, and a question that
+arrives mid-answer is processed after the current one.
+
+A WebSocket rather than a streamed `POST`/`EventSource` because HTTP responses get
+buffered by clients and middleboxes — which is exactly what happened with the
+earlier `application/x-ndjson` design — whereas every WebSocket frame lands as it
+is sent. The frontend uses the native `WebSocket` (see `streamAboutIncidents` in
+`frontend/src/api/incidents.ts`); the Vite dev server proxies it via `ws: true`.
 
 ## Configuration (environment variables)
 
@@ -69,10 +98,12 @@ Routing inside the app:
 | `OPENAI_API_KEY`     | yes      | –                                                   | API key for your OpenAI-compatible server |
 | `OPENAI_API_BASE`    | no       | `https://api.openai.com/v1`                         | Base URL of your OpenAI-compatible server |
 | `OPENAI_MODEL`       | no       | `gpt-4o-mini`                                       | Model name served by that server          |
+| `OPENAI_REASONING_EFFORT` | no | `medium`                                        | How hard the model thinks: `none`/`minimal`/`low`/`medium`/`high`/`xhigh` |
 | `DATABASE_URL`       | yes      | `postgres://incidents:incidents@localhost:5432/incidents` | Postgres connection string          |
 | `WEAVIATE_HOSTNAME`  | yes      | –                                                   | Weaviate host                             |
 | `WEAVIATE_PORT`      | yes      | –                                                   | Weaviate port                             |
 | `FRONTEND_LOCATION`  | no       | `static`                                            | Where the built frontend assets live      |
+| `RUSTBERT_CACHE`     | no       | `$XDG_CACHE_HOME/.rustbert`                         | Where the embedding model weights are cached |
 
 The bundled `.env.example` is pre-filled for the local **halogen** instance
 (`https://ssh.nilles.dev/halogen/v1`, model `halogen-qwen3.8-flash-next`); copy it

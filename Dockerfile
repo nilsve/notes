@@ -20,8 +20,14 @@ FROM chef AS builder
 RUN apt-get update
 RUN apt-get install -y curl build-essential ca-certificates tzdata net-tools pkg-config libssl-dev openssl
 
-# Install libtorch
-RUN curl -L https://download.pytorch.org/libtorch/cu121/libtorch-cxx11-abi-shared-with-deps-2.1.0%2Bcu121.zip -o libtorch.zip
+# Install libtorch. Two things must line up here:
+#  * version: must match what `torch-sys`/`tch` (pulled in via rust-bert) expects
+#    - tch 0.17.x wants PyTorch 2.4.0, otherwise the build dies with
+#    "this tch version expects PyTorch 2.4.0, got 2.1.0"
+#  * variant: CPU-only. This host has no NVIDIA GPU/driver, and the app has always
+#    run on CPU (rust-bert falls back via Device::cuda_if_available). The cu121
+#    build is 2.4GB and useless here; the CPU build is ~190MB.
+RUN curl -L https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-2.4.0%2Bcpu.zip -o libtorch.zip
 RUN unzip libtorch.zip -d /
 
 ENV LIBTORCH=/libtorch
@@ -55,7 +61,11 @@ RUN npm run build
 FROM fedora:latest as runtime
 
 RUN dnf update -y
-RUN dnf install ca-certificates wget unzip -y
+RUN dnf install ca-certificates wget unzip bzip2-libs -y
+
+# Fedora's bzip2-libs ships SONAME `libbz2.so.1`, but libtorch_cpu.so asks for
+# `libbz2.so.1.0`. Symlink the two so the dynamic linker is happy.
+RUN ln -sf /usr/lib64/libbz2.so.1.0.8 /usr/lib64/libbz2.so.1.0 && ldconfig
 
 # Copy libtorch from builder
 COPY --from=builder /libtorch /libtorch

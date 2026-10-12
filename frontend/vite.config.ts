@@ -8,7 +8,10 @@ export default defineConfig({
         proxy: {
             '^/api/.*': {
                 target: 'http://localhost:1337',
-                changeOrigin: true
+                changeOrigin: true,
+                // /api/ai/ws is a WebSocket; without this the dev server
+                // proxies plain HTTP only and the socket never connects.
+                ws: true
             }
         }
     }

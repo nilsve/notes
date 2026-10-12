@@ -10,6 +10,12 @@ services:
       - WEAVIATE_HOSTNAME=weaviate
       - WEAVIATE_PORT=8080
       - DATABASE_URL=postgres://incidents:incidents@postgres:5432/incidents
+      # Where rust-bert caches the sentence-embedding model. Without a volume the
+      # ~90MB of all-MiniLM-L12-V2 weights are re-downloaded from Hugging Face on
+      # every container start.
+      - RUSTBERT_CACHE=/var/cache/rustbert
+    volumes:
+      - rustbert_cache:/var/cache/rustbert
     depends_on:
       postgres:
         condition: service_healthy
@@ -25,8 +31,9 @@ services:
       POSTGRES_USER: incidents
       POSTGRES_PASSWORD: incidents
       POSTGRES_DB: incidents
-    ports:
-      - "5432:5432"
+    # No published ports on purpose: Postgres is only reachable from the
+    # `internal` docker network (i.e. the server container). Nothing on the host
+    # and no other container can open a connection to it.
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -40,8 +47,9 @@ services:
   weaviate:
     hostname: weaviate
     image: cr.weaviate.io/semitechnologies/weaviate:1.24.10
-    ports:
-      - "127.0.0.1:8081:8080"
+    # No published ports on purpose: only the server container talks to Weaviate,
+    # over the `internal` docker network. Nothing on the host and no other
+    # container can reach it.
     volumes:
       - weaviate_data:/var/lib/weaviate
     environment:
@@ -56,6 +64,7 @@ services:
 volumes:
   weaviate_data:
   postgres_data:
+  rustbert_cache:
 
 networks:
   internal:
